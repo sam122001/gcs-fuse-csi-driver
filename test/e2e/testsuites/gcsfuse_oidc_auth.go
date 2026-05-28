@@ -105,6 +105,18 @@ func (t *gcsFuseCSIOIDCTestSuite) DefineTests(driver storageframework.TestDriver
 		framework.ExpectNoError(err, "while cleaning up")
 	}
 
+	enableWIFEnforcement := func() {
+		ginkgo.By("Enabling WIF credential enforcement on webhook (--require-wif-credential-configmap=true)")
+		err := utils.SetWebhookWIFEnforcement(ctx, f.ClientSet, true)
+		framework.ExpectNoError(err, "enabling WIF enforcement on webhook")
+		ginkgo.DeferCleanup(func() {
+			ginkgo.By("Restoring webhook WIF enforcement to false")
+			if restoreErr := utils.SetWebhookWIFEnforcement(ctx, f.ClientSet, false); restoreErr != nil {
+				klog.Warningf("failed to restore webhook WIF enforcement: %v", restoreErr)
+			}
+		})
+	}
+
 	// setupOIDCInfrastructure sets up the GCP OIDC infrastructure (workload identity pool and provider).
 	// Returns projectNumber and credentialConfig.
 	setupOIDCInfrastructure := func() (string, string) {
@@ -170,6 +182,7 @@ func (t *gcsFuseCSIOIDCTestSuite) DefineTests(driver storageframework.TestDriver
 	}
 
 	testCaseOIDCMount := func() {
+		enableWIFEnforcement()
 		init(specs.SkipCSIBucketAccessCheckPrefix)
 		defer cleanup()
 
@@ -204,6 +217,7 @@ func (t *gcsFuseCSIOIDCTestSuite) DefineTests(driver storageframework.TestDriver
 	}
 
 	testCaseOIDCStoreData := func() {
+		enableWIFEnforcement()
 		init(specs.SkipCSIBucketAccessCheckPrefix)
 		defer cleanup()
 
@@ -252,6 +266,7 @@ func (t *gcsFuseCSIOIDCTestSuite) DefineTests(driver storageframework.TestDriver
 	}
 
 	testCaseOIDCStoreDataInImplicitDir := func() {
+		enableWIFEnforcement()
 		init(specs.SkipCSIBucketAccessCheckPrefix)
 		defer cleanup()
 
@@ -303,6 +318,7 @@ func (t *gcsFuseCSIOIDCTestSuite) DefineTests(driver storageframework.TestDriver
 	}
 
 	testCaseOIDCMissingConfigMap := func() {
+		enableWIFEnforcement()
 		init(specs.SkipCSIBucketAccessCheckPrefix)
 		defer cleanup()
 
@@ -333,6 +349,7 @@ func (t *gcsFuseCSIOIDCTestSuite) DefineTests(driver storageframework.TestDriver
 	}
 
 	testCaseOIDCWithCSIBucketAccessCheck := func() {
+		enableWIFEnforcement()
 		// Note: NOT using SkipCSIBucketAccessCheckPrefix
 		init()
 		defer cleanup()

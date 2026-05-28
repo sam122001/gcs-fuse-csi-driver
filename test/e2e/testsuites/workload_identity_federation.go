@@ -99,6 +99,23 @@ func (t *gcsFuseCSIWorkloadIdentityFederationTestSuite) DefineTests(driver stora
 		framework.ExpectNoError(err, "while cleaning up")
 	}
 
+	// enableWIFEnforcement patches the webhook deployment to set
+	// --require-wif-credential-configmap=true and registers a deferred cleanup
+	// that restores the flag to false after the test. This ensures that only
+	// WIF/OIDC test cases run with cluster-wide enforcement active; all other
+	// test suites see the default (false) and are unaffected.
+	enableWIFEnforcement := func() {
+		ginkgo.By("Enabling WIF credential enforcement on webhook (--require-wif-credential-configmap=true)")
+		err := utils.SetWebhookWIFEnforcement(ctx, f.ClientSet, true)
+		framework.ExpectNoError(err, "enabling WIF enforcement on webhook")
+		ginkgo.DeferCleanup(func() {
+			ginkgo.By("Restoring webhook WIF enforcement to false")
+			if restoreErr := utils.SetWebhookWIFEnforcement(ctx, f.ClientSet, false); restoreErr != nil {
+				klog.Warningf("failed to restore webhook WIF enforcement: %v", restoreErr)
+			}
+		})
+	}
+
 	// setupOSSWIFPrincipal creates all OSS Workload Identity Federation infrastructure
 	// (WIF pool, provider, KSA, credential ConfigMap) for ksaName and returns the
 	// WIF principal string and the credential config JSON. Cleanup is registered via ginkgo.DeferCleanup.
@@ -176,7 +193,9 @@ func (t *gcsFuseCSIWorkloadIdentityFederationTestSuite) DefineTests(driver stora
 	}
 
 	// deployWIFPod creates a pod with the WIF KSA, mounts the volume, and applies the
-	// credential ConfigMap annotation when running on an OSS cluster.
+	// credential ConfigMap annotation when running on an OSS cluster. On OSS clusters it also
+	// sets the require-wif-credential-configmap annotation to enforce that the sidecar does not
+	// fall back to the node's GCP service account identity via Application Default Credentials.
 	deployWIFPod := func(ksaName, credentialConfigMapName, volumeName, mountPath string) *specs.TestPod {
 		tPod := specs.NewTestPodModifiedSpec(f.ClientSet, f.Namespace, true)
 		tPod.SetServiceAccount(ksaName)
@@ -191,6 +210,8 @@ func (t *gcsFuseCSIWorkloadIdentityFederationTestSuite) DefineTests(driver stora
 	}
 
 	ginkgo.It("should fail GCS access after workload identity federation principal permissions are removed while pod is running", func() {
+		enableWIFEnforcement()
+
 		isOSS := os.Getenv(utils.IsOSSEnvVar) == "true"
 
 		// OSS: credential ConfigMap doesn't exist at mount time, so the CSI pre-mount
@@ -336,6 +357,8 @@ func (t *gcsFuseCSIWorkloadIdentityFederationTestSuite) DefineTests(driver stora
 	})
 
 	ginkgo.It("should isolate workload identity federation access for Kubernetes service accounts with the same name across different namespaces", func() {
+		enableWIFEnforcement()
+
 		isOSS := os.Getenv(utils.IsOSSEnvVar) == "true"
 
 		// OSS: credential ConfigMap doesn't exist at mount time, so the CSI pre-mount
@@ -540,6 +563,7 @@ func (t *gcsFuseCSIWorkloadIdentityFederationTestSuite) DefineTests(driver stora
 	})
 
 	ginkgo.It("should enforce different GCS bucket permissions for different Kubernetes service accounts", func() {
+		enableWIFEnforcement()
 		init(specs.SkipCSIBucketAccessCheckPrefix)
 		defer cleanup()
 
@@ -626,6 +650,8 @@ func (t *gcsFuseCSIWorkloadIdentityFederationTestSuite) DefineTests(driver stora
 	})
 
 	ginkgo.It("should successfully authenticate multiple pods using same federation configuration", func() {
+		enableWIFEnforcement()
+
 		isOSS := os.Getenv(utils.IsOSSEnvVar) == "true"
 
 		if isOSS {

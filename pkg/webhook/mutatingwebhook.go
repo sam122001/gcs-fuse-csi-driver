@@ -56,6 +56,12 @@ const (
 	metadataPrefetchMemoryRequestAnnotation          = "gke-gcsfuse/metadata-prefetch-memory-request"
 	GCPWorkloadIdentityCredentialConfigMapAnnotation = "gke-gcsfuse/workload-identity-credential-configmap"
 	NumaPinningAnnotation                            = "gke-gcsfuse/enable-numa-pinning"
+	// RequireWIFCredentialConfigMapAnnotation is a per-pod opt-in annotation that, when set to
+	// "true", causes the webhook to deny the pod if it is missing the
+	// GCPWorkloadIdentityCredentialConfigMapAnnotation. This prevents the gcsfuse sidecar from
+	// silently falling back to Application Default Credentials (ADC) — and thus the node's GCP
+	// service account identity — when no explicit workload identity credential is supplied.
+	RequireWIFCredentialConfigMapAnnotation = "gke-gcsfuse/require-wif-credential-configmap"
 )
 
 var (
@@ -75,6 +81,11 @@ type SidecarInjector struct {
 	ScLister               listerstoragev1.StorageClassLister
 	ServerVersion          *version.Version
 	K8SClient              kubernetes.Interface
+	// RequireWIFCredentialConfigMap enables cluster-wide enforcement: all pods using GCS FUSE
+	// volumes must supply GCPWorkloadIdentityCredentialConfigMapAnnotation. When true, the
+	// webhook denies any pod that lacks the annotation, preventing silent ADC fallback to the
+	// node's GCP service account identity. Defaults to false.
+	RequireWIFCredentialConfigMap bool
 }
 
 // Handle injects a gcsfuse sidecar container and a emptyDir to incoming qualified pods.
@@ -123,6 +134,28 @@ func (si *SidecarInjector) Handle(ctx context.Context, req admission.Request) ad
 		return admission.Allowed(fmt.Sprintf("found annotation '%v: false' for Pod: Name %q, GenerateName %q, Namespace %q, no injection required.", GcsFuseVolumeEnableAnnotation, pod.Name, pod.GenerateName, pod.Namespace))
 	}
 
+	// Determine whether WIF credential ConfigMap enforcement is active for this pod.
+	// Enforcement is on when either the cluster-wide webhook flag is set, or the pod
+	// carries the per-pod opt-in annotation set to "true".
+	requireWIF := si.RequireWIFCredentialConfigMap
+	if !requireWIF {
+		if v, ok := pod.Annotations[RequireWIFCredentialConfigMapAnnotation]; ok {
+			if parsed, parseErr := ParseBool(v); parseErr == nil {
+				requireWIF = parsed
+			}
+		}
+	}
+	if requireWIF {
+		if _, ok := pod.Annotations[GCPWorkloadIdentityCredentialConfigMapAnnotation]; !ok {
+			return admission.Denied(fmt.Sprintf(
+				"pod uses GCS FUSE volumes but is missing the %q annotation; "+
+					"supply a workload identity credential ConfigMap to prevent the gcsfuse sidecar "+
+					"from falling back to the node's GCP service account identity via Application Default Credentials",
+				GCPWorkloadIdentityCredentialConfigMapAnnotation,
+			))
+		}
+	}
+
 	sidecarInjected, _ := ValidatePodHasSidecarContainerInjected(pod)
 	if sidecarInjected {
 		return admission.Allowed("The sidecar container was injected, no injection required.")
@@ -157,6 +190,13 @@ func (si *SidecarInjector) Handle(ctx context.Context, req admission.Request) ad
 			},
 		}
 		klog.Infof("Injected GCP workload identity credential configuration configMap %s in namespace %s", configMapName, pod.Namespace)
+	}
+
+	// When WIF enforcement is active, inject --require-application-credentials into the sidecar
+	// as a runtime backstop: the sidecar will refuse to start if GOOGLE_APPLICATION_CREDENTIALS
+	// is absent, preventing silent ADC fallback even if the webhook is misconfigured or bypassed.
+	if requireWIF && sidecarCredentialConfig != nil {
+		sidecarCredentialConfig.RequireApplicationCredentials = true
 	}
 
 	// Inject Fuse Side Car container.

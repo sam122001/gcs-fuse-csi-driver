@@ -49,6 +49,12 @@ var (
 	storageServiceAndBucketAccessFactor   = flag.Float64("storage-service-check-retry-factor", 2.0, "storage service creation and bucket access check exponential retry factor")
 	storageServiceAndBucketAccessJitter   = flag.Float64("storage-service-check-retry-jitter", 0.1, "storage service creation and bucket access check exponential retry jitter")
 	storageServiceAndBucketAccessDuration = flag.Duration("storage-service-check-retry-duration", 5*time.Second, "storage service creation and bucket access check exponential retry initial duration")
+	// requireApplicationCredentials, when true, causes the sidecar mounter to fail immediately if
+	// GOOGLE_APPLICATION_CREDENTIALS is not set in its environment. This prevents silent fallback
+	// to Application Default Credentials and thus to the node's GCP service account identity.
+	// The webhook injects this flag into sidecar args when WIF credential enforcement is active.
+	// Defaults to false.
+	requireApplicationCredentials = flag.Bool("require-application-credentials", false, "When true, fail if GOOGLE_APPLICATION_CREDENTIALS is not set, preventing silent ADC fallback to the node identity.")
 
 	// This is set at compile time.
 	version = "unknown"
@@ -59,6 +65,14 @@ func main() {
 	flag.Parse()
 
 	klog.Infof("Running Google Cloud Storage FUSE CSI driver sidecar mounter version %v", version)
+
+	// Runtime backstop: when enforcement is active, refuse to start if no explicit application
+	// credentials are present. This prevents silent ADC fallback to the node's GCP identity.
+	if *requireApplicationCredentials && os.Getenv("GOOGLE_APPLICATION_CREDENTIALS") == "" {
+		klog.Fatalf("--require-application-credentials is set but GOOGLE_APPLICATION_CREDENTIALS is not set in the environment; " +
+			"refusing to start to prevent silent fallback to the node's GCP service account identity via Application Default Credentials. " +
+			"Supply the gke-gcsfuse/workload-identity-credential-configmap pod annotation to inject credentials.")
+	}
 
 	socketPathPattern := *volumeBasePath + "/*/socket"
 	socketPaths, err := filepath.Glob(socketPathPattern)

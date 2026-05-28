@@ -118,6 +118,11 @@ var (
 type SidecarContainerCredentialConfiguration struct {
 	GacEnv                 *corev1.EnvVar       // This is the environment variable for GOOGLE_APPLICATION_CREDENTIALS that will be injected into the sidecar container.
 	CredentialVolumeMounts []corev1.VolumeMount // These are the volume mounts for the credential files that will be injected into the sidecar container.
+	// RequireApplicationCredentials, when true, causes the webhook to append
+	// --require-application-credentials to the sidecar mounter args. The sidecar
+	// will then refuse to start if GOOGLE_APPLICATION_CREDENTIALS is unset,
+	// acting as a runtime backstop against silent ADC fallback to the node identity.
+	RequireApplicationCredentials bool
 }
 
 func GetNativeSidecarContainerSpec(c *Config, credentialConfig *SidecarContainerCredentialConfiguration) corev1.Container {
@@ -162,6 +167,12 @@ func GetSidecarContainerSpec(c *Config, credentialConfig *SidecarContainerCreden
 		// Inject the volume mounts for the credential files.
 		if len(credentialConfig.CredentialVolumeMounts) > 0 {
 			container.VolumeMounts = append(container.VolumeMounts, credentialConfig.CredentialVolumeMounts...)
+		}
+
+		// When WIF enforcement is active, tell the sidecar mounter to refuse to start
+		// if GOOGLE_APPLICATION_CREDENTIALS is absent (runtime backstop against ADC fallback).
+		if credentialConfig.RequireApplicationCredentials {
+			container.Args = append(container.Args, "--require-application-credentials")
 		}
 	}
 
