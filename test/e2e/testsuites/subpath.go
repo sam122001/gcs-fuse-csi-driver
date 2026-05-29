@@ -21,6 +21,8 @@ import (
 	"context"
 	"fmt"
 
+	"local/test/e2e/specs"
+
 	"github.com/google/uuid"
 	"github.com/onsi/ginkgo/v2"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
@@ -29,7 +31,6 @@ import (
 	storageframework "k8s.io/kubernetes/test/e2e/storage/framework"
 	admissionapi "k8s.io/pod-security-admission/api"
 	"k8s.io/utils/ptr"
-	"local/test/e2e/specs"
 )
 
 type gcsFuseCSISubPathTestSuite struct {
@@ -69,6 +70,8 @@ func (t *gcsFuseCSISubPathTestSuite) DefineTests(driver storageframework.TestDri
 	// f must run inside an It or Context callback.
 	f := framework.NewFrameworkWithCustomTimeouts("subpath", storageframework.GetDriverTimeouts(driver))
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
+
+	registerWebhookRequireWifDisableIfEnabled(ctx, f)
 
 	init := func(configPrefix ...string) {
 		l = local{}

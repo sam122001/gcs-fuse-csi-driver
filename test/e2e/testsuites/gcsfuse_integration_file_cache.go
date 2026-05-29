@@ -72,6 +72,8 @@ func (t *gcsFuseCSIGCSFuseIntegrationFileCacheTestSuite) DefineTests(driver stor
 	f := framework.NewFrameworkWithCustomTimeouts("gcsfuse-integration-file-cache", storageframework.GetDriverTimeouts(driver))
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 
+	registerWebhookRequireWifDisableIfEnabled(ctx, f)
+
 	init := func(configPrefix ...string) {
 		l = local{}
 		l.config = driver.PrepareTest(ctx, f)

@@ -150,6 +150,8 @@ func (t *gcsFuseCSIProfilesTestSuite) DefineTests(driver storageframework.TestDr
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	ctx := context.Background()
 
+	registerWebhookRequireWifDisableIfEnabled(ctx, f)
+
 	init := func(configPrefix ...string) *storageframework.PerTestConfig {
 		// Validate IAM Role exists. Currently disabled as the role is not created is not allowed in boskos projects.
 		// TODO(fuechr): Reenable once we have a way to create the role in boskos projects.

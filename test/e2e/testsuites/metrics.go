@@ -114,6 +114,8 @@ func (t *gcsFuseCSIMetricsTestSuite) DefineTests(driver storageframework.TestDri
 	f := framework.NewFrameworkWithCustomTimeouts("metrics", storageframework.GetDriverTimeouts(driver))
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 
+	registerWebhookRequireWifDisableIfEnabled(ctx, f)
+
 	init := func(volumeNumber int, configPrefix ...string) {
 		l = local{}
 		l.config = driver.PrepareTest(ctx, f)

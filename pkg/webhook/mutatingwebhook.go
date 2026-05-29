@@ -75,6 +75,10 @@ type SidecarInjector struct {
 	ScLister               listerstoragev1.StorageClassLister
 	ServerVersion          *version.Version
 	K8SClient              kubernetes.Interface
+	// RequireWifCredentialConfigmap denies admission to GCS FUSE pods that lack
+	// the workload-identity-credential-configmap annotation, preventing silent
+	// fallback to the node's GCP service account identity.
+	RequireWifCredentialConfigmap bool
 }
 
 // Handle injects a gcsfuse sidecar container and a emptyDir to incoming qualified pods.
@@ -121,6 +125,15 @@ func (si *SidecarInjector) Handle(ctx context.Context, req admission.Request) ad
 		klog.Infof("found annotation '%v: true' for Pod: Name %q, GenerateName %q, Namespace %q, start to inject the sidecar container.", GcsFuseVolumeEnableAnnotation, pod.Name, pod.GenerateName, pod.Namespace)
 	} else {
 		return admission.Allowed(fmt.Sprintf("found annotation '%v: false' for Pod: Name %q, GenerateName %q, Namespace %q, no injection required.", GcsFuseVolumeEnableAnnotation, pod.Name, pod.GenerateName, pod.Namespace))
+	}
+
+	if si.RequireWifCredentialConfigmap {
+		if configMapName, ok := pod.Annotations[GCPWorkloadIdentityCredentialConfigMapAnnotation]; !ok || configMapName == "" {
+			return admission.Denied(fmt.Sprintf(
+				"pod is missing required annotation %q: the cluster requires workload identity federation credentials to prevent fallback to the node's GCP service account",
+				GCPWorkloadIdentityCredentialConfigMapAnnotation,
+			))
+		}
 	}
 
 	sidecarInjected, _ := ValidatePodHasSidecarContainerInjected(pod)

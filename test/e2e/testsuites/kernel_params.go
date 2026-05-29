@@ -200,6 +200,8 @@ func (t *gcsFuseCSIKernelParamsTestSuite) DefineTests(driver storageframework.Te
 	f := framework.NewFrameworkWithCustomTimeouts("kernel-params", storageframework.GetDriverTimeouts(driver))
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 
+	registerWebhookRequireWifDisableIfEnabled(ctx, f)
+
 	init := func(configPrefix ...string) {
 		skipIfKernelParamsNotSupported()
 

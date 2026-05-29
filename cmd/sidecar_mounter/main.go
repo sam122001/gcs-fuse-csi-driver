@@ -50,6 +50,7 @@ var (
 	storageServiceAndBucketAccessJitter   = flag.Float64("storage-service-check-retry-jitter", 0.1, "storage service creation and bucket access check exponential retry jitter")
 	storageServiceAndBucketAccessDuration = flag.Duration("storage-service-check-retry-duration", 5*time.Second, "storage service creation and bucket access check exponential retry initial duration")
 
+	requireApplicationCredentials = flag.Bool("require-application-credentials", false, "Refuse sidecar startup if GOOGLE_APPLICATION_CREDENTIALS is not set, preventing silent fallback to the node's GCP service account identity.")
 	// This is set at compile time.
 	version = "unknown"
 )
@@ -59,6 +60,10 @@ func main() {
 	flag.Parse()
 
 	klog.Infof("Running Google Cloud Storage FUSE CSI driver sidecar mounter version %v", version)
+
+	if *requireApplicationCredentials && os.Getenv("GOOGLE_APPLICATION_CREDENTIALS") == "" {
+		klog.Fatalf("--require-application-credentials is enabled but GOOGLE_APPLICATION_CREDENTIALS is not set; refusing to start to prevent silent fallback to the node's GCP service account")
+	}
 
 	socketPathPattern := *volumeBasePath + "/*/socket"
 	socketPaths, err := filepath.Glob(socketPathPattern)

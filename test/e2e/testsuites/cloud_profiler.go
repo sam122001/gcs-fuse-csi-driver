@@ -80,6 +80,8 @@ func (t *gcsFuseCSICloudProfilerTestSuite) DefineTests(driver storageframework.T
 	f := framework.NewFrameworkWithCustomTimeouts("cloud-profiler", storageframework.GetDriverTimeouts(driver))
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 
+	registerWebhookRequireWifDisableIfEnabled(ctx, f)
+
 	init := func(configPrefix ...string) {
 		l = local{}
 		l.config = driver.PrepareTest(ctx, f)

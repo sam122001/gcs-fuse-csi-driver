@@ -21,6 +21,8 @@ import (
 	"context"
 	"fmt"
 
+	"local/test/e2e/specs"
+
 	"github.com/google/uuid"
 	"github.com/googlecloudplatform/gcs-fuse-csi-driver/pkg/webhook"
 	"github.com/onsi/ginkgo/v2"
@@ -30,7 +32,6 @@ import (
 	e2evolume "k8s.io/kubernetes/test/e2e/framework/volume"
 	storageframework "k8s.io/kubernetes/test/e2e/storage/framework"
 	admissionapi "k8s.io/pod-security-admission/api"
-	"local/test/e2e/specs"
 )
 
 type gcsFuseCSIFileCacheTestSuite struct {
@@ -74,6 +75,8 @@ func (t *gcsFuseCSIFileCacheTestSuite) DefineTests(driver storageframework.TestD
 	// f must run inside an It or Context callback.
 	f := framework.NewFrameworkWithCustomTimeouts("file-cache", storageframework.GetDriverTimeouts(driver))
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
+
+	registerWebhookRequireWifDisableIfEnabled(ctx, f)
 
 	init := func(configPrefix ...string) {
 		l = local{}

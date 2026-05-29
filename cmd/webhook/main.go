@@ -66,6 +66,7 @@ var (
 	metadataPrefetchCPULimit                = flag.String("metadata-sidecar-cpu-limit", "50m", "Flag to use default value for gcsfuse memory prefetch sidecar container cpu limit.")
 	metadataPrefetchEphemeralStorageRequest = flag.String("metadata-sidecar-ephemeral-storage-request", "10Mi", "The default value for gcsfuse memory prefetch sidecar ephemeral storage request.")
 	metadataPrefetchEphemeralStorageLimit   = flag.String("metadata-sidecar-ephemeral-storage-limit", "10Mi", "The default value for gcsfuse memory prefetch sidecar ephemeral storage limit.")
+	requireWifCredentialConfigmap = flag.Bool("require-wif-credential-configmap", false, "Deny admission to GCS FUSE pods that lack the workload-identity-credential-configmap annotation, preventing silent fallback to the node's GCP service account.")
 	// These are set at compile time.
 	webhookVersion = "unknown"
 )
@@ -177,16 +178,17 @@ func main() {
 	klog.Info("Registering webhooks to the webhook server.")
 	hookServer.Register("/inject", &webhook.Admission{
 		Handler: &wh.SidecarInjector{
-			Client:                 mgr.GetClient(),
-			Config:                 fuseSideCarConfig,
-			MetadataPrefetchConfig: metadataPrefetchSideCarConfig,
-			Decoder:                admission.NewDecoder(runtime.NewScheme()),
-			NodeLister:             nodeLister,
-			PvLister:               pvLister,
-			PvcLister:              pvcLister,
-			ScLister:               scLister,
-			ServerVersion:          serverVersion,
-			K8SClient:              client,
+			Client:                        mgr.GetClient(),
+			Config:                        fuseSideCarConfig,
+			MetadataPrefetchConfig:        metadataPrefetchSideCarConfig,
+			Decoder:                       admission.NewDecoder(runtime.NewScheme()),
+			NodeLister:                    nodeLister,
+			PvLister:                      pvLister,
+			PvcLister:                     pvcLister,
+			ScLister:                      scLister,
+			ServerVersion:                 serverVersion,
+			K8SClient:                     client,
+			RequireWifCredentialConfigmap: *requireWifCredentialConfigmap,
 		},
 	})
 

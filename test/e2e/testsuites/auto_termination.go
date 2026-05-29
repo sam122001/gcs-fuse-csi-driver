@@ -79,6 +79,8 @@ func (t *gcsFuseCSIAutoTerminationTestSuite) DefineTests(driver storageframework
 	f := framework.NewFrameworkWithCustomTimeouts("auto-termination", storageframework.GetDriverTimeouts(driver))
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 
+	registerWebhookRequireWifDisableIfEnabled(ctx, f)
+
 	init := func(configPrefix ...string) {
 		l = local{}
 		l.config = driver.PrepareTest(ctx, f)
