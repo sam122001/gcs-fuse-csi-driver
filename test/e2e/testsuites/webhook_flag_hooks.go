@@ -20,6 +20,7 @@ package testsuites
 import (
 	"context"
 	"os"
+	"sync"
 
 	"local/test/e2e/utils"
 
@@ -27,41 +28,49 @@ import (
 	"k8s.io/kubernetes/test/e2e/framework"
 )
 
-// registerWebhookRequireWifDisableIfEnabled registers a BeforeEach that
-// disables --require-wif-credential-configmap when it is already enabled (e.g.
-// by an operator), runs the test, then restores the flag afterward via
+// registerWebhookRequireWifDisableIfEnabled registers a BeforeEach that runs
+// once per suite (via sync.Once) to disable --require-wif-credential-configmap
+// when it is already enabled, then restores it after the suite via
 // DeferCleanup. This prevents admission denial for suites that do not supply
-// the workload-identity-credential-configmap annotation on their pods.
+// the workload-identity-credential-configmap annotation on their pods, while
+// minimizing webhook redeployments to one per suite instead of one per test.
 // Only active on OSS deployments (IS_OSS=true); a no-op otherwise.
 func registerWebhookRequireWifDisableIfEnabled(ctx context.Context, f *framework.Framework) {
 	if os.Getenv(utils.IsOSSEnvVar) != "true" {
 		return
 	}
+	var once sync.Once
 	ginkgo.BeforeEach(func() {
-		wasEnabled, err := utils.GetWebhookRequireWifConfigmap(ctx, f.ClientSet)
-		framework.ExpectNoError(err)
-		if wasEnabled {
-			framework.ExpectNoError(utils.SetWebhookRequireWifConfigmap(ctx, f.ClientSet, false))
-			ginkgo.DeferCleanup(func() {
-				framework.ExpectNoError(utils.SetWebhookRequireWifConfigmap(context.Background(), f.ClientSet, true))
-			})
-		}
+		once.Do(func() {
+			wasEnabled, err := utils.GetWebhookRequireWifConfigmap(ctx, f.ClientSet)
+			framework.ExpectNoError(err)
+			if wasEnabled {
+				framework.ExpectNoError(utils.SetWebhookRequireWifConfigmap(ctx, f.ClientSet, false))
+				ginkgo.DeferCleanup(func() {
+					framework.ExpectNoError(utils.SetWebhookRequireWifConfigmap(context.Background(), f.ClientSet, true))
+				})
+			}
+		})
 	})
 }
 
-// registerWebhookRequireWifEnable registers a BeforeEach that enables
-// --require-wif-credential-configmap before each test and restores it to false
-// afterward via DeferCleanup. Use in WIF/OIDC suites so they run under full
-// enforcement and verify that the credential annotation is being respected.
+// registerWebhookRequireWifEnable registers a BeforeEach that runs once per
+// suite (via sync.Once) to enable --require-wif-credential-configmap, then
+// restores it to false after the suite via DeferCleanup. Use in WIF/OIDC
+// suites so they run under full enforcement. Minimizes webhook redeployments
+// to one per suite instead of one per test.
 // Only active on OSS deployments (IS_OSS=true); a no-op otherwise.
 func registerWebhookRequireWifEnable(ctx context.Context, f *framework.Framework) {
 	if os.Getenv(utils.IsOSSEnvVar) != "true" {
 		return
 	}
+	var once sync.Once
 	ginkgo.BeforeEach(func() {
-		framework.ExpectNoError(utils.SetWebhookRequireWifConfigmap(ctx, f.ClientSet, true))
-		ginkgo.DeferCleanup(func() {
-			framework.ExpectNoError(utils.SetWebhookRequireWifConfigmap(context.Background(), f.ClientSet, false))
+		once.Do(func() {
+			framework.ExpectNoError(utils.SetWebhookRequireWifConfigmap(ctx, f.ClientSet, true))
+			ginkgo.DeferCleanup(func() {
+				framework.ExpectNoError(utils.SetWebhookRequireWifConfigmap(context.Background(), f.ClientSet, false))
+			})
 		})
 	})
 }
