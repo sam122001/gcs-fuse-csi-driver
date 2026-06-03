@@ -18,6 +18,7 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
@@ -27,12 +28,14 @@ import (
 
 	"local/test/e2e/specs"
 	"local/test/e2e/testsuites"
+	"local/test/e2e/utils"
 
 	"github.com/googlecloudplatform/gcs-fuse-csi-driver/pkg/cloud_provider/clientset"
 	"github.com/googlecloudplatform/gcs-fuse-csi-driver/pkg/cloud_provider/metadata"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 
+	k8sclientset "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/klog/v2"
 	"k8s.io/kubernetes/test/e2e/framework"
@@ -89,6 +92,61 @@ var _ = func() bool {
 	testsuites.GCSFuseVersionStr = specs.GetGCSFuseVersion()
 	return true
 }()
+
+// webhookWIFEnforcementBeforeRun holds the value of --require-wif-credential-configmap
+// that was in effect before the test suite ran, so AfterSuite can restore it.
+var webhookWIFEnforcementBeforeRun bool
+
+// buildK8sClient constructs a k8s clientset from the current kubeconfig.
+func buildK8sClient() k8sclientset.Interface {
+	kubeConfig, err := clientcmd.LoadFromFile(framework.TestContext.KubeConfig)
+	if err != nil {
+		klog.Fatalf("failed to load kube config: %v", err)
+	}
+	restConfig, err := clientcmd.NewDefaultClientConfig(*kubeConfig, &clientcmd.ConfigOverrides{}).ClientConfig()
+	if err != nil {
+		klog.Fatalf("failed to build rest config: %v", err)
+	}
+	k8sClient, err := k8sclientset.NewForConfig(restConfig)
+	if err != nil {
+		klog.Fatalf("failed to create k8s client: %v", err)
+	}
+	return k8sClient
+}
+
+// BeforeSuite saves the current --require-wif-credential-configmap value and resets
+// it to false so that every test run starts from a known state. Non-WIF suites rely
+// on this default; WIF/OIDC suites toggle the flag per-testcase.
+var _ = ginkgo.BeforeSuite(func() {
+	if os.Getenv(utils.IsOSSEnvVar) != "true" {
+		return
+	}
+	k8sClient := buildK8sClient()
+	prev, err := utils.GetWebhookWIFEnforcement(context.Background(), k8sClient, utils.DriverNamespace)
+	if err != nil {
+		klog.Fatalf("BeforeSuite: failed to read webhook WIF enforcement: %v", err)
+	}
+	webhookWIFEnforcementBeforeRun = prev
+	klog.Infof("BeforeSuite: webhook --require-wif-credential-configmap was %v before test run", prev)
+	klog.Info("BeforeSuite: resetting webhook --require-wif-credential-configmap=false")
+	if err := utils.SetWebhookWIFEnforcement(context.Background(), k8sClient, utils.DriverNamespace, false); err != nil {
+		klog.Fatalf("BeforeSuite: failed to reset webhook WIF enforcement: %v", err)
+	}
+	klog.Info("BeforeSuite: webhook reset complete")
+})
+
+// AfterSuite restores --require-wif-credential-configmap to whatever it was before
+// the test suite ran, so the cluster is left in the same state it was found in.
+var _ = ginkgo.AfterSuite(func() {
+	if os.Getenv(utils.IsOSSEnvVar) != "true" {
+		return
+	}
+	k8sClient := buildK8sClient()
+	klog.Infof("AfterSuite: restoring webhook --require-wif-credential-configmap=%v", webhookWIFEnforcementBeforeRun)
+	if err := utils.SetWebhookWIFEnforcement(context.Background(), k8sClient, utils.DriverNamespace, webhookWIFEnforcementBeforeRun); err != nil {
+		klog.Errorf("AfterSuite: failed to restore webhook WIF enforcement: %v", err)
+	}
+})
 
 func TestE2E(t *testing.T) {
 	t.Parallel()

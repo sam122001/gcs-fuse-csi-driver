@@ -106,6 +106,24 @@ func (t *gcsFuseCSIOIDCTestSuite) DefineTests(driver storageframework.TestDriver
 		framework.ExpectNoError(err, "while cleaning up")
 	}
 
+	// enableWIFEnforcement enables --require-wif-credential-configmap on the webhook for
+	// the duration of the testcase and restores it to false in cleanup. This is done
+	// per-testcase (not per-suite) so that Ginkgo retries always start in a known state.
+	enableWIFEnforcement := func() {
+		if os.Getenv(utils.IsOSSEnvVar) != "true" {
+			return
+		}
+		framework.Logf("Enabling webhook WIF enforcement for this testcase")
+		err := utils.SetWebhookWIFEnforcement(ctx, f.ClientSet, utils.DriverNamespace, true)
+		framework.ExpectNoError(err, "enabling webhook WIF enforcement")
+		ginkgo.DeferCleanup(func() {
+			framework.Logf("Restoring webhook WIF enforcement to false after testcase")
+			if restoreErr := utils.SetWebhookWIFEnforcement(ctx, f.ClientSet, utils.DriverNamespace, false); restoreErr != nil {
+				framework.Logf("WARNING: failed to restore webhook WIF enforcement: %v", restoreErr)
+			}
+		})
+	}
+
 	// setupOIDCInfrastructure sets up the GCP OIDC infrastructure (workload identity pool and provider).
 	// Returns projectNumber and credentialConfig.
 	setupOIDCInfrastructure := func() (string, string) {
@@ -368,22 +386,27 @@ func (t *gcsFuseCSIOIDCTestSuite) DefineTests(driver storageframework.TestDriver
 	}
 
 	ginkgo.It("should successfully mount with OIDC authentication", func() {
+		enableWIFEnforcement()
 		testCaseOIDCMount()
 	})
 
 	ginkgo.It("should store and retain data with OIDC authentication", func() {
+		enableWIFEnforcement()
 		testCaseOIDCStoreData()
 	})
 
 	ginkgo.It("should store data in implicit directory with OIDC authentication", func() {
+		enableWIFEnforcement()
 		testCaseOIDCStoreDataInImplicitDir()
 	})
 
 	ginkgo.It("should fail when OIDC ConfigMap is missing", func() {
+		enableWIFEnforcement()
 		testCaseOIDCMissingConfigMap()
 	})
 
 	ginkgo.It("should fail when CSI bucket access check is enabled with OIDC authentication", func() {
+		enableWIFEnforcement()
 		testCaseOIDCWithCSIBucketAccessCheck()
 	})
 
@@ -393,6 +416,7 @@ func (t *gcsFuseCSIOIDCTestSuite) DefineTests(driver storageframework.TestDriver
 	//
 	// TODO: Remove the skip below once the node-identity-fallback security bug is fixed.
 	ginkgo.It("should fail to start pod when WIF credential config is absent and node SA has bucket access", func() {
+		enableWIFEnforcement()
 		e2eskipper.Skipf("skipping until node-identity-fallback security bug is fixed")
 
 		init(specs.SkipCSIBucketAccessCheckPrefix)

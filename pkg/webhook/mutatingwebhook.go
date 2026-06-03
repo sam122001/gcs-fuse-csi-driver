@@ -75,6 +75,10 @@ type SidecarInjector struct {
 	ScLister               listerstoragev1.StorageClassLister
 	ServerVersion          *version.Version
 	K8SClient              kubernetes.Interface
+	// RequireWIFCredentialConfigMap rejects any GCS FUSE workload that does not carry
+	// the gke-gcsfuse/workload-identity-credential-configmap annotation, preventing
+	// silent fallback to node-identity ADC credentials.
+	RequireWIFCredentialConfigMap bool
 }
 
 // Handle injects a gcsfuse sidecar container and a emptyDir to incoming qualified pods.
@@ -134,6 +138,17 @@ func (si *SidecarInjector) Handle(ctx context.Context, req admission.Request) ad
 	}
 
 	var sidecarCredentialConfig *SidecarContainerCredentialConfiguration
+	// Enforce that the WIF credential ConfigMap annotation is present when required.
+	if si.RequireWIFCredentialConfigMap {
+		configMapName := pod.Annotations[GCPWorkloadIdentityCredentialConfigMapAnnotation]
+		if configMapName == "" {
+			return admission.Denied(fmt.Sprintf(
+				"pod %q in namespace %q is missing required annotation %q: "+
+					"all GCS FUSE workloads must use Workload Identity Federation credentials",
+				pod.Name, pod.Namespace, GCPWorkloadIdentityCredentialConfigMapAnnotation,
+			))
+		}
+	}
 	// Inject GCP workload identity credential config configmap and token.
 	if configMapName, ok := pod.Annotations[GCPWorkloadIdentityCredentialConfigMapAnnotation]; ok && configMapName != "" && si.K8SClient != nil {
 		// Validate that OIDC authentication is not used with hostNetwork pods

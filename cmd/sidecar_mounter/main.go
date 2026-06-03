@@ -40,6 +40,7 @@ import (
 
 var (
 	gcsfusePath                           = flag.String("gcsfuse-path", "/gcsfuse", "gcsfuse path")
+	requireApplicationCredentials         = flag.Bool("require-application-credentials", false, "Refuse to start if GOOGLE_APPLICATION_CREDENTIALS is not set, preventing silent fallback to node-identity ADC")
 	volumeBasePath                        = flag.String("volume-base-path", webhook.SidecarContainerTmpVolumeMountPath+"/.volumes", "volume base path")
 	_                                     = flag.Int("grace-period", 0, "grace period for gcsfuse termination. This flag has been deprecated, has no effect and will be removed in the future.")
 	kubeconfigPath                        = flag.String("kubeconfig-path", "", "The kubeconfig path.")
@@ -59,6 +60,14 @@ func main() {
 	flag.Parse()
 
 	klog.Infof("Running Google Cloud Storage FUSE CSI driver sidecar mounter version %v", version)
+
+	if *requireApplicationCredentials {
+		if os.Getenv("GOOGLE_APPLICATION_CREDENTIALS") == "" {
+			klog.Fatalf("--require-application-credentials is set but GOOGLE_APPLICATION_CREDENTIALS is not set; " +
+				"refusing to start to prevent silent fallback to node-identity ADC credentials")
+		}
+		klog.Infof("GOOGLE_APPLICATION_CREDENTIALS is set, proceeding with application credentials enforcement")
+	}
 
 	socketPathPattern := *volumeBasePath + "/*/socket"
 	socketPaths, err := filepath.Glob(socketPathPattern)

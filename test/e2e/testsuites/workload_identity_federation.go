@@ -99,6 +99,24 @@ func (t *gcsFuseCSIWorkloadIdentityFederationTestSuite) DefineTests(driver stora
 		framework.ExpectNoError(err, "while cleaning up")
 	}
 
+	// enableWIFEnforcement enables --require-wif-credential-configmap on the webhook for
+	// the duration of the testcase and restores it to false in cleanup. This is done
+	// per-testcase (not per-suite) so that Ginkgo retries always start in a known state.
+	enableWIFEnforcement := func() {
+		if os.Getenv(utils.IsOSSEnvVar) != "true" {
+			return
+		}
+		framework.Logf("Enabling webhook WIF enforcement for this testcase")
+		err := utils.SetWebhookWIFEnforcement(ctx, f.ClientSet, utils.DriverNamespace, true)
+		framework.ExpectNoError(err, "enabling webhook WIF enforcement")
+		ginkgo.DeferCleanup(func() {
+			framework.Logf("Restoring webhook WIF enforcement to false after testcase")
+			if restoreErr := utils.SetWebhookWIFEnforcement(ctx, f.ClientSet, utils.DriverNamespace, false); restoreErr != nil {
+				framework.Logf("WARNING: failed to restore webhook WIF enforcement: %v", restoreErr)
+			}
+		})
+	}
+
 	// setupOSSWIFPrincipal creates all OSS Workload Identity Federation infrastructure
 	// (WIF pool, provider, KSA, credential ConfigMap) for ksaName and returns the
 	// WIF principal string and the credential config JSON. Cleanup is registered via ginkgo.DeferCleanup.
@@ -192,6 +210,7 @@ func (t *gcsFuseCSIWorkloadIdentityFederationTestSuite) DefineTests(driver stora
 
 	// Test 1: Verify that GCS access fails after WIF principal permissions are revoked mid-run.
 	ginkgo.It("should fail GCS access after workload identity federation principal permissions are removed while pod is running", func() {
+		enableWIFEnforcement()
 		isOSS := os.Getenv(utils.IsOSSEnvVar) == "true"
 
 		// OSS: credential ConfigMap doesn't exist at mount time, so the CSI pre-mount
@@ -336,6 +355,7 @@ func (t *gcsFuseCSIWorkloadIdentityFederationTestSuite) DefineTests(driver stora
 	// Test 2: Verify that a pod whose KSA has WIF bucket access can mount and write,
 	// even when the node SA has no bucket access.
 	ginkgo.It("should successfully mount when pod KSA has WIF bucket access but node SA does not", func() {
+		enableWIFEnforcement()
 		isOSS := os.Getenv(utils.IsOSSEnvVar) == "true"
 
 		// Skip the CSI pre-mount bucket access check for both OSS and GKE in this test,
@@ -396,6 +416,7 @@ func (t *gcsFuseCSIWorkloadIdentityFederationTestSuite) DefineTests(driver stora
 	})
 
 	ginkgo.It("should isolate workload identity federation access for Kubernetes service accounts with the same name across different namespaces", func() {
+		enableWIFEnforcement()
 		isOSS := os.Getenv(utils.IsOSSEnvVar) == "true"
 
 		// OSS: credential ConfigMap doesn't exist at mount time, so the CSI pre-mount
@@ -599,6 +620,7 @@ func (t *gcsFuseCSIWorkloadIdentityFederationTestSuite) DefineTests(driver stora
 	})
 
 	ginkgo.It("should enforce different GCS bucket permissions for different Kubernetes service accounts", func() {
+		enableWIFEnforcement()
 		init(specs.SkipCSIBucketAccessCheckPrefix)
 		defer cleanup()
 
@@ -685,6 +707,7 @@ func (t *gcsFuseCSIWorkloadIdentityFederationTestSuite) DefineTests(driver stora
 	})
 
 	ginkgo.It("should successfully authenticate multiple pods using same federation configuration", func() {
+		enableWIFEnforcement()
 		isOSS := os.Getenv(utils.IsOSSEnvVar) == "true"
 
 		if isOSS {
@@ -778,6 +801,7 @@ func (t *gcsFuseCSIWorkloadIdentityFederationTestSuite) DefineTests(driver stora
 	})
 
 	ginkgo.It("should re-authenticate successfully after pod restart using federation", func() {
+		enableWIFEnforcement()
 		init(specs.SkipCSIBucketAccessCheckPrefix)
 		defer cleanup()
 

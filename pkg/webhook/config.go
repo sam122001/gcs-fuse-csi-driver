@@ -29,12 +29,16 @@ import (
 )
 
 type Config struct {
-	ShouldInjectSAVolume  bool   `json:"-"`
-	EnableGcsfuseProfiles bool   `json:"-"`
-	PodHostNetworkSetting bool   `json:"-"`
-	EnableNumaPinning     bool   `json:"enable-numa-pinning,omitempty"`
-	ContainerImage        string `json:"-"`
-	ImagePullPolicy       string `json:"-"`
+	ShouldInjectSAVolume          bool   `json:"-"`
+	EnableGcsfuseProfiles         bool   `json:"-"`
+	PodHostNetworkSetting         bool   `json:"-"`
+	EnableNumaPinning             bool   `json:"enable-numa-pinning,omitempty"`
+	ContainerImage                string `json:"-"`
+	ImagePullPolicy               string `json:"-"`
+	// RequireApplicationCredentials causes the webhook to inject
+	// --require-application-credentials into the gcsfuse sidecar args,
+	// making the sidecar refuse to start if GOOGLE_APPLICATION_CREDENTIALS is unset.
+	RequireApplicationCredentials bool `json:"-"`
 	//nolint:tagliatelle
 	CPURequest resource.Quantity `json:"cpu-request,omitempty"`
 	//nolint:tagliatelle

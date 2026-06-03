@@ -57,6 +57,8 @@ var (
 	sidecarImage                            = flag.String("sidecar-image", "", "The gcsfuse sidecar container image.")
 	metadataSidecarImage                    = flag.String("metadata-sidecar-image", "", "The metadata prefetch sidecar container image.")
 	injectSAVol                             = flag.Bool("should-inject-sa-vol", false, "Inject projected service account volume when true")
+	requireWIFCredentialConfigMap           = flag.Bool("require-wif-credential-configmap", false, "Reject GCS FUSE workloads that do not carry the workload-identity-credential-configmap annotation")
+	requireApplicationCredentials           = flag.Bool("require-application-credentials", false, "Inject --require-application-credentials into the gcsfuse sidecar, causing it to refuse to start without GOOGLE_APPLICATION_CREDENTIALS set")
 	enableGcsfuseProfiles                   = flag.Bool("enable-gcsfuse-profiles", false, "Enable gcsfuse profiles when true")
 	enableAutoGoMemLimit                    = flag.Bool("enable-auto-gomemlimit", false, "Automatically set GOMEMLIMIT to a percentage of the container's cgroup memory limit.")
 	autoGoMemLimitRatio                     = flag.Float64("auto-gomemlimit-ratio", util.GoMemLimitCgroupPercentage, "The ratio of the container's cgroup memory limit to set as GOMEMLIMIT when enable-auto-gomemlimit is enabled.")
@@ -105,6 +107,8 @@ func main() {
 
 	fuseSideCarConfig.EnableGcsfuseProfiles = *enableGcsfuseProfiles
 	klog.Infof("Webhook should enable gcsfuse profiles: %t", fuseSideCarConfig.EnableGcsfuseProfiles)
+	fuseSideCarConfig.RequireApplicationCredentials = *requireApplicationCredentials
+	klog.Infof("Webhook require-application-credentials: %t", fuseSideCarConfig.RequireApplicationCredentials)
 
 	metadataPrefetchSideCarConfig := wh.LoadConfig(*metadataSidecarImage, *imagePullPolicy, *metadataPrefetchCPURequest, *metadataPrefetchCPULimit, *metadataMemoryRequest, *metadataMemoryLimit, *metadataPrefetchEphemeralStorageRequest, *metadataPrefetchEphemeralStorageLimit)
 	metadataPrefetchSideCarConfig.EnableGcsfuseProfiles = *enableGcsfuseProfiles
@@ -175,18 +179,20 @@ func main() {
 	hookServer := mgr.GetWebhookServer()
 
 	klog.Info("Registering webhooks to the webhook server.")
+	klog.Infof("Webhook require-wif-credential-configmap: %t", *requireWIFCredentialConfigMap)
 	hookServer.Register("/inject", &webhook.Admission{
 		Handler: &wh.SidecarInjector{
-			Client:                 mgr.GetClient(),
-			Config:                 fuseSideCarConfig,
-			MetadataPrefetchConfig: metadataPrefetchSideCarConfig,
-			Decoder:                admission.NewDecoder(runtime.NewScheme()),
-			NodeLister:             nodeLister,
-			PvLister:               pvLister,
-			PvcLister:              pvcLister,
-			ScLister:               scLister,
-			ServerVersion:          serverVersion,
-			K8SClient:              client,
+			Client:                        mgr.GetClient(),
+			Config:                        fuseSideCarConfig,
+			MetadataPrefetchConfig:        metadataPrefetchSideCarConfig,
+			Decoder:                       admission.NewDecoder(runtime.NewScheme()),
+			NodeLister:                    nodeLister,
+			PvLister:                      pvLister,
+			PvcLister:                     pvcLister,
+			ScLister:                      scLister,
+			ServerVersion:                 serverVersion,
+			K8SClient:                     client,
+			RequireWIFCredentialConfigMap: *requireWIFCredentialConfigMap,
 		},
 	})
 
