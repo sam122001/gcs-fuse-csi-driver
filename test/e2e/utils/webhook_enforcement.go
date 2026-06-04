@@ -42,11 +42,14 @@ const (
 
 	requireWIFArgTrue  = "--require-wif-credential-configmap=true"
 	requireWIFArgFalse = "--require-wif-credential-configmap=false"
+
+	requireAppCredsArgTrue  = "--require-application-credentials=true"
+	requireAppCredsArgFalse = "--require-application-credentials=false"
 )
 
-// GetWebhookWIFEnforcement reads the current --require-wif-credential-configmap value
-// from the webhook deployment and returns it as a bool. Returns false if the arg is
-// absent (i.e. the default).
+// GetWebhookWIFEnforcement reads the current enforcement state from the webhook
+// deployment. Returns true only when BOTH --require-wif-credential-configmap
+// and --require-application-credentials are true.
 func GetWebhookWIFEnforcement(ctx context.Context, client clientset.Interface, namespace string) (bool, error) {
 	deploy, err := client.AppsV1().Deployments(namespace).Get(ctx, webhookDeploymentName, metav1.GetOptions{})
 	if err != nil {
@@ -54,45 +57,54 @@ func GetWebhookWIFEnforcement(ctx context.Context, client clientset.Interface, n
 	}
 	for _, c := range deploy.Spec.Template.Spec.Containers {
 		if c.Name == webhookContainerName {
+			wif := false
+			appCreds := false
 			for _, a := range c.Args {
 				if a == requireWIFArgTrue {
-					return true, nil
+					wif = true
+				}
+				if a == requireAppCredsArgTrue {
+					appCreds = true
 				}
 			}
-			return false, nil
+			return wif && appCreds, nil
 		}
 	}
 	return false, fmt.Errorf("container %q not found in webhook deployment", webhookContainerName)
 }
 
-// SetWebhookWIFEnforcement sets --require-wif-credential-configmap on the webhook
-// deployment and waits for the rollout to complete. Callers must supply both the
-// driver namespace (e.g. "gcs-fuse-csi-driver") and a live clientset.
-// If the deployment already has the desired value, the function returns immediately
-// without patching to avoid a spurious generation increment and rollout wait.
+// SetWebhookWIFEnforcement sets BOTH --require-wif-credential-configmap and
+// --require-application-credentials on the webhook deployment to the same value
+// and waits for the rollout to complete.
+//
+// The two flags are always toggled together:
+//   - enabled=true  → both flags true  (full WIF enforcement)
+//   - enabled=false → both flags false (normal operation, non-WIF pods unaffected)
+//
+// If the deployment already has the desired value for both flags, the function
+// returns immediately without patching to avoid a spurious rollout wait.
 func SetWebhookWIFEnforcement(ctx context.Context, client clientset.Interface, namespace string, enabled bool) error {
-	targetArg := requireWIFArgFalse
-	if enabled {
-		targetArg = requireWIFArgTrue
-	}
-	klog.Infof("Setting webhook WIF enforcement to %v (arg: %s)", enabled, targetArg)
+	klog.Infof("Setting webhook WIF enforcement to %v", enabled)
 
 	deploy, err := client.AppsV1().Deployments(namespace).Get(ctx, webhookDeploymentName, metav1.GetOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to get webhook deployment %s/%s: %w", namespace, webhookDeploymentName, err)
 	}
 
-	// Short-circuit: if the arg is already at the desired value, skip the patch and wait.
+	// Short-circuit: if both flags are already at the desired value, skip patch.
 	for _, c := range deploy.Spec.Template.Spec.Containers {
 		if c.Name == webhookContainerName {
-			current := false
+			currentWIF := false
+			currentAppCreds := false
 			for _, a := range c.Args {
 				if a == requireWIFArgTrue {
-					current = true
-					break
+					currentWIF = true
+				}
+				if a == requireAppCredsArgTrue {
+					currentAppCreds = true
 				}
 			}
-			if current == enabled {
+			if currentWIF == enabled && currentAppCreds == enabled {
 				klog.Infof("Webhook WIF enforcement already %v, no patch needed", enabled)
 				return nil
 			}
@@ -112,7 +124,7 @@ func SetWebhookWIFEnforcement(ctx context.Context, client clientset.Interface, n
 		return fmt.Errorf("container %q not found in webhook deployment", webhookContainerName)
 	}
 
-	updated.Spec.Template.Spec.Containers[containerIdx].Args = setOrReplaceWIFArg(
+	updated.Spec.Template.Spec.Containers[containerIdx].Args = setOrReplaceEnforcementArgs(
 		updated.Spec.Template.Spec.Containers[containerIdx].Args,
 		enabled,
 	)
@@ -131,19 +143,21 @@ func SetWebhookWIFEnforcement(ctx context.Context, client clientset.Interface, n
 	return waitForWebhookRollout(ctx, client, namespace, deploy.Generation+1)
 }
 
-// setOrReplaceWIFArg removes any existing --require-wif-credential-configmap=*
-// entry and appends the new value.
-func setOrReplaceWIFArg(args []string, enabled bool) []string {
+// setOrReplaceEnforcementArgs removes any existing --require-wif-credential-configmap=*
+// and --require-application-credentials=* entries and appends both with the new value.
+func setOrReplaceEnforcementArgs(args []string, enabled bool) []string {
 	filtered := make([]string, 0, len(args))
 	for _, a := range args {
-		if a != requireWIFArgTrue && a != requireWIFArgFalse {
-			filtered = append(filtered, a)
+		if a == requireWIFArgTrue || a == requireWIFArgFalse ||
+			a == requireAppCredsArgTrue || a == requireAppCredsArgFalse {
+			continue
 		}
+		filtered = append(filtered, a)
 	}
 	if enabled {
-		return append(filtered, requireWIFArgTrue)
+		return append(filtered, requireWIFArgTrue, requireAppCredsArgTrue)
 	}
-	return append(filtered, requireWIFArgFalse)
+	return append(filtered, requireWIFArgFalse, requireAppCredsArgFalse)
 }
 
 // buildArgPatch produces a strategic-merge-patch that updates only the container args.

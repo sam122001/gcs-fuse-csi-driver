@@ -201,9 +201,16 @@ func Handle(testParams *TestParameters) error {
 		return fmt.Errorf("--skip-csi-driver-install used with --use-gke-managed-driver, this is invalid")
 	}
 
+	// Mark the run as OSS whenever the GKE managed driver is not in use, regardless
+	// of whether the driver install step is being skipped. IS_OSS controls webhook
+	// enforcement toggling in BeforeSuite/AfterSuite and must be set even when the
+	// driver is already deployed and --skip-csi-driver-install=true is passed.
+	if !testParams.UseGKEManagedDriver {
+		os.Setenv(IsOSSEnvVar, "true")
+	}
+
 	// Build and push the driver if the test does not use the pre-installed managed CSI driver. Defer the driver image deletion.
 	if !testParams.UseGKEManagedDriver && !testParams.SkipCSIDriverInstall {
-		os.Setenv(IsOSSEnvVar, "true")
 		if testParams.BuildGcsFuseCsiDriver {
 			klog.Infof("Building GCS FUSE CSI Driver")
 			if testParams.GCSFusePRNumber != "" {
